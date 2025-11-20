@@ -46,7 +46,7 @@ object WarmUpAppExercises {
     // 3. Print schema.
     // 4. Show first 5 rows.
     // 5. Filter age >= 18 and show.
-    val spark = SparkSession.builder.appName("WarmUpApp").master(local[*]).getOrCreate()
+    val spark = SparkSession.builder.appName("WarmUpApp").master("local[*]").getOrCreate()
     val df = spark.read.option("header", "true").option("inferSchema", "true").csv("C:\\Users\\WillyCheto\\Desktop\\CursoBigData\\data\\warmup.csv")
     df.printSchema()
     df.show(5)    
