@@ -47,7 +47,7 @@ object WarmUpAppExercises {
     // 4. Show first 5 rows.
     // 5. Filter age >= 18 and show.
     val spark = SparkSession.builder.appName('WarmUpApp').local[*].getOrCreate()
-    val df = spark.read.option("header", "true").option("inferSchema", "true").csv("C:\Users\WillyCheto\Desktop\CursoBigData\data\warmup.csv")
+    val df = spark.read.option("header", "true").option("inferSchema", "true").csv("C:\\Users\\WillyCheto\\Desktop\\CursoBigData\\data\\warmup.csv")
     df.printSchema()
     df.show(5)    
     println("Filtrando registros donde la edad es >= 18:")
@@ -56,6 +56,7 @@ object WarmUpAppExercises {
   }
 
 }
+
 
 // ------------------------------------------------------------
 // 1. DataFrame Fundamentals – Online Retail Analysis
