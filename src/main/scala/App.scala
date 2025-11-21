@@ -109,7 +109,7 @@ object RetailAnalysisAppExercises {
     // 4. Clean data (filter conditions).
     // 5. Add total_amount column.
     // 6. Implement each query (a–d) and show results.
-    val spark = SparkSession.builder.appName("RetailAnalysis").master("local[*]").getOrCreate()
+    val spark = SparkSession.builder.appName("RetailAnalysisAppExercises").master("local[*]").getOrCreate()
     import spark.implicits._
     val retailSchema = StructType(Seq(
       StructField("order_id", LongType, nullable = false),
