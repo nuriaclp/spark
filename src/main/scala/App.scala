@@ -109,6 +109,74 @@ object RetailAnalysisAppExercises {
     // 4. Clean data (filter conditions).
     // 5. Add total_amount column.
     // 6. Implement each query (a–d) and show results.
+    val spark = SparkSession.builder.appName("RetailAnalysis").master("local[*]").getOrCreate()
+    import spark.implicits._
+    val retailSchema = StructType(Seq(
+      StructField("order_id", LongType, nullable = false),
+      StructField("customer_id", LongType, nullable = true),
+      StructField("country", StringType, nullable = true),
+      StructField("product", StringType, nullable = true),
+      StructField("category", StringType, nullable = true),
+      StructField("unit_price", DoubleType, nullable = true),
+      StructField("quantity", IntegerType, nullable = true),
+      StructField("order_timestamp", StringType, nullable = true)
+    ))
+    val rawRetail = spark.read.schema(retailSchema).option("header", "true").csv("C:/Users/WillyCheto/Desktop/CursoBigData/data/online_retail.csv")
+    
+    val retail = rawRetail
+      .filter(col("customer_id").isNotNull)
+      .filter(col("quantity") > 0 && col("unit_price") > 0)
+
+    val retailWithAmount = retail.withColumn(
+      "total_amount",
+      col("quantity") * col("unit_price")
+    )
+
+    // a) Top 10 countries by total revenue
+    val revenueByCountry = retailWithAmount
+      .groupBy("country")
+      .agg(sum("total_amount").alias("total_revenue"))
+      .orderBy(col("total_revenue").desc)
+
+    println("Top 10 countries by total revenue:")
+    revenueByCountry.show(10, truncate = false)
+
+    // b) Average order value per country
+    val orderTotalsByCountry = retailWithAmount
+      .groupBy("country", "order_id")
+      .agg(sum("total_amount").alias("order_total"))
+
+    val avgOrderValueByCountry = orderTotalsByCountry
+      .groupBy("country")
+      .agg(avg("order_total").alias("avg_order_value"))
+      .orderBy(col("avg_order_value").desc)
+
+    println("Average order value per country:")
+    avgOrderValueByCountry.show(false)
+
+    // c) Top 5 products by quantity
+    val topProductsByQty = retailWithAmount
+      .groupBy("product")
+      .agg(sum("quantity").alias("total_qty"))
+      .orderBy(col("total_qty").desc)
+
+    println("Top 5 products by quantity:")
+    topProductsByQty.show(5, truncate = false)
+
+    // d) Category statistics
+    val categoryStats = retailWithAmount
+      .groupBy("category")
+      .agg(
+        sum("quantity").alias("total_qty"),
+        sum("total_amount").alias("total_revenue"),
+        avg("unit_price").alias("avg_unit_price")
+      )
+      .orderBy(col("total_revenue").desc)
+
+    println("Category stats:")
+    categoryStats.show(false)
+
+    spark.stop()
   }
 
 }
