@@ -227,6 +227,77 @@ object JoinsAndWindowsExercises {
     // 5. Add customer_total_spent to each order row.
     // 6. Rank customers per country and get top 3.
     // 7. Compute order_seq and running_total per customer.
+   val spark = SparkSession.builder()
+      .appName("JoinsAndWindowsSolution")
+      .master("local[*]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val customersDf = spark.read
+      .option("header", "true")
+      .option("inferSchema", "true")
+      .csv("C:/Users/WillyCheto/Desktop/CursoBigData/data/customers.csv")
+
+    val ordersDf = spark.read
+      .option("header", "true")
+      .option("inferSchema", "true")
+      .csv("C:/Users/WillyCheto/Desktop/CursoBigData/data/orders.csv")
+
+    // Inner join on customer_id
+    val customersOrders = customersDf.join(
+      ordersDf,
+      Seq("customer_id"),
+      "inner"
+    )
+
+    // Total spent per customer
+    val customerTotals = customersOrders
+      .groupBy("customer_id")
+      .agg(sum("order_total").alias("customer_total_spent"))
+
+    // Enrich orders with customer_total_spent
+    val customersOrdersWithTotal = customersOrders.join(
+      customerTotals,
+      Seq("customer_id"),
+      "left"
+    )
+
+    println("Customers with total spent:")
+    customersOrdersWithTotal.show(false)
+
+    // Ranking within each country
+    val windowByCountry = Window
+      .partitionBy("country")
+      .orderBy(col("customer_total_spent").desc)
+
+    val rankedCustomers = customerTotals
+      .join(customersDf, Seq("customer_id"))
+      .withColumn("rank_in_country", row_number().over(windowByCountry))
+
+    println("Ranked customers by country:")
+    rankedCustomers.show(false)
+
+    // Top 3 customers per country
+    val top3PerCountry = rankedCustomers
+      .filter(col("rank_in_country") <= 3)
+
+    println("Top 3 customers per country:")
+    top3PerCountry.show(false)
+
+    // Order sequence number and running total per customer
+    val windowByCustomerTime = Window
+      .partitionBy("customer_id")
+      .orderBy(col("order_timestamp").cast("timestamp"))
+
+    val ordersWithSeqAndRunningTotal = ordersDf
+      .withColumn("order_seq", row_number().over(windowByCustomerTime))
+      .withColumn("running_total", sum("order_total").over(windowByCustomerTime))
+
+    println("Orders with sequence and running total:")
+    ordersWithSeqAndRunningTotal.show(false)
+
+    spark.stop()
   }
 
 }
