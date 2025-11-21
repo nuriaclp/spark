@@ -385,6 +385,69 @@ object TypedDatasetsExercises {
     // 2. Load customers.csv and orders.csv; convert to Dataset[Customer] and Dataset[Order].
     // 3. Use typed operations (e.g., groupByKey + mapGroups) to compute CustomerStats.
     // 4. Filter total_spent > 1000 and map to String summaries.
+ val spark = SparkSession.builder()
+      .appName("TypedDatasetsSolution")
+      .master("local[*]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val customersDf = spark.read
+      .option("header", "true")
+      .option("inferSchema", "true")
+      .csv("data/customers.csv")
+
+    val ordersDf = spark.read
+      .option("header", "true")
+      .option("inferSchema", "true")
+      .csv("data/orders.csv")
+
+    val customersDs = customersDf.as[Customer]
+    val ordersDs = ordersDf.as[Order]
+
+    // Group orders by customer_id using a Dataset
+    val ordersByCustomer = ordersDs.groupByKey(_.customer_id)
+
+    // Join customers with grouped orders and compute stats
+    val statsDs = customersDs.joinWith(
+      ordersByCustomer.mapGroups { (cid, ordersIter) =>
+        val orders = ordersIter.toList.sortBy(_.order_timestamp)
+        (cid, orders)
+      },
+      customersDs("customer_id") === ordersByCustomer.keys,
+      "left_outer"
+    ).map { case (customer, optTuple) =>
+      val orders = Option(optTuple).map(_._2).getOrElse(Nil)
+      val totalOrders = orders.size.toLong
+      val totalSpent = orders.map(_.order_total).sum
+      val firstTs = orders.headOption.map(_.order_timestamp)
+      val lastTs = orders.lastOption.map(_.order_timestamp)
+
+      CustomerStats(
+        customer_id = customer.customer_id,
+        name = customer.name,
+        country = customer.country,
+        total_orders = totalOrders,
+        total_spent = totalSpent,
+        first_order_ts = firstTs,
+        last_order_ts = lastTs
+      )
+    }
+
+    println("CustomerStats:")
+    statsDs.show(false)
+
+    // Filter big spenders
+    val bigSpenders = statsDs.filter(_.total_spent > 1000.0)
+
+    val summaries = bigSpenders.map { cs =>
+      f"${cs.name} (${cs.country}) spent ${cs.total_spent}%.2f in ${cs.total_orders} orders"
+    }
+
+    println("Big spender summaries:")
+    summaries.show(false)
+
+    spark.stop()
   }
 
 }
@@ -422,7 +485,21 @@ object TypedDatasetsExercises {
 //        - with DataFrame .withColumn
 //        - in a SQL query over a "customers" view.
 
-object SqlAndUdfExercises {
+object SqlAndUdfSolution {
+ 
+  def spamRisk(email: String): Int = {
+    if (email == null) 2
+    else {
+      val parts = email.split("@")
+      val domain = if (parts.length == 2) parts(1) else ""
+      domain match {
+        case "gmail.com"  => 0
+        case "outlook.com" => 0
+        case "yahoo.com"  => 1
+        case _            => 2
+      }
+    }
+  }
 
   def main(args: Array[String]): Unit = {
     // TODO:
@@ -432,6 +509,104 @@ object SqlAndUdfExercises {
     // 4. Implement SQL queries for metrics and top categories.
     // 5. Implement spamRisk UDF and register it.
     // 6. Apply spam_risk in DataFrame API and SQL.
+  
+   val spark = SparkSession.builder()
+      .appName("SqlAndUdfSolution")
+      .master("local[*]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val retailSchema = StructType(Seq(
+      StructField("order_id", LongType, nullable = false),
+      StructField("customer_id", LongType, nullable = true),
+      StructField("country", StringType, nullable = true),
+      StructField("product", StringType, nullable = true),
+      StructField("category", StringType, nullable = true),
+      StructField("unit_price", DoubleType, nullable = true),
+      StructField("quantity", IntegerType, nullable = true),
+      StructField("order_timestamp", StringType, nullable = true)
+    ))
+
+    val rawRetail = spark.read
+      .schema(retailSchema)
+      .option("header", "true")
+      .csv("data/online_retail.csv")
+
+    val retail = rawRetail
+      .filter(col("customer_id").isNotNull)
+      .filter(col("quantity") > 0 && col("unit_price") > 0)
+
+    val retailWithAmount = retail.withColumn(
+      "total_amount",
+      col("quantity") * col("unit_price")
+    )
+
+    retailWithAmount.createOrReplaceTempView("retail")
+
+    // SQL query 1: metrics per country
+    val countryMetricsSql =
+      "SELECT country, " +
+        "COUNT(DISTINCT order_id) AS num_orders, " +
+        "COUNT(DISTINCT customer_id) AS num_customers, " +
+        "SUM(quantity * unit_price) AS total_revenue " +
+        "FROM retail " +
+        "GROUP BY country " +
+        "ORDER BY total_revenue DESC"
+
+    val countryMetrics = spark.sql(countryMetricsSql)
+    println("Country metrics:")
+    countryMetrics.show(false)
+
+    // SQL query 2: top 5 categories per country
+    val topCategoriesSql =
+      "WITH category_revenue AS (" +
+        "  SELECT country, category, SUM(quantity * unit_price) AS total_revenue " +
+        "  FROM retail " +
+        "  GROUP BY country, category" +
+        "), ranked AS (" +
+        "  SELECT country, category, total_revenue, " +
+        "         ROW_NUMBER() OVER (PARTITION BY country ORDER BY total_revenue DESC) AS rn " +
+        "  FROM category_revenue" +
+        ") " +
+        "SELECT country, category, total_revenue " +
+        "FROM ranked " +
+        "WHERE rn <= 5 " +
+        "ORDER BY country, total_revenue DESC"
+
+    val topCategories = spark.sql(topCategoriesSql)
+    println("Top 5 categories per country:")
+    topCategories.show(false)
+
+    // UDF registration
+    val spamRiskUdf = udf(spamRisk _)
+    spark.udf.register("spam_risk", spamRisk _)
+
+    // Example: apply to a customers DataFrame if available
+    val customersDf = spark.read
+      .option("header", "true")
+      .option("inferSchema", "true")
+      .csv("data/customers.csv")
+
+    val customersWithRiskDf = customersDf.withColumn(
+      "spam_risk",
+      spamRiskUdf(col("email"))
+    )
+
+    println("Customers with spam_risk (DataFrame API):")
+    customersWithRiskDf.show(false)
+
+    customersDf.createOrReplaceTempView("customers")
+
+    val riskSql =
+      "SELECT *, spam_risk(email) AS spam_risk FROM customers"
+
+    val customersWithRiskSql = spark.sql(riskSql)
+    println("Customers with spam_risk (SQL):")
+    customersWithRiskSql.show(false)
+
+    spark.stop()
+  }
   }
 
 }
